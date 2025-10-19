@@ -4,14 +4,14 @@ import numpy as np
 import yfinance as yf
 import plotly.graph_objects as go
 from datetime import datetime
-import time
+from streamlit_autorefresh import st_autorefresh
 
 # =========================
 # CẤU HÌNH
 # =========================
-st.set_page_config(page_title="Gold Analyst Pro v8", layout="wide")
-st.title("🏆 Gold Analyst Pro v8 – AI phân tích vàng (Yahoo Realtime + History)")
-st.caption("Dữ liệu realtime & lịch sử từ Yahoo Finance. Không cần API, hoạt động ổn định, miễn phí.")
+st.set_page_config(page_title="Gold Analyst Pro v8.1", layout="wide")
+st.title("🏆 Gold Analyst Pro v8.1 – AI phân tích vàng (Yahoo Realtime + History)")
+st.caption("Dữ liệu realtime & lịch sử từ Yahoo Finance. Tự động cập nhật mỗi 30 giây, không cần API key.")
 
 # =========================
 # CÁC HÀM CHỈ BÁO
@@ -40,7 +40,7 @@ def atr(df, n=14):
     return tr.rolling(n).mean()
 
 # =========================
-# HÀM LẤY DỮ LIỆU TỪ YAHOO
+# LẤY DỮ LIỆU YAHOO
 # =========================
 def fetch_data(interval="1h", period="90d"):
     df = yf.download("XAUUSD=X", interval=interval, period=period, progress=False)
@@ -48,7 +48,7 @@ def fetch_data(interval="1h", period="90d"):
     return df
 
 # =========================
-# PHÂN TÍCH CHỈ BÁO
+# PHÂN TÍCH
 # =========================
 def analyze(df):
     res = {"trend":"-", "rsi":None, "ma20":None, "ma50":None,
@@ -104,43 +104,41 @@ def plot_charts(df):
 interval_map = {"1 Giờ": "1h", "4 Giờ": "4h", "1 Ngày": "1d"}
 selected = st.selectbox("⏱️ Chọn khung thời gian:", list(interval_map.keys()))
 
-placeholder = st.empty()
-interval = 30  # refresh mỗi 30s
+# Auto refresh mỗi 30 giây
+st_autorefresh(interval=30 * 1000, key="refresh_data")
 
-while True:
-    with placeholder.container():
-        st.subheader("💰 Giá vàng thời gian thực (Yahoo Finance)")
-        df_live = yf.download("XAUUSD=X", period="1d", interval="1m", progress=False)
-        if not df_live.empty:
-            last_price = df_live["Close"].iloc[-1]
-            st.metric("Giá hiện tại (XAU/USD)", f"{last_price:.2f}")
-            st.write(f"🕒 Cập nhật lúc: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+# Hiển thị giá realtime
+st.subheader("💰 Giá vàng thời gian thực (Yahoo Finance)")
+df_live = yf.download("XAUUSD=X", period="1d", interval="1m", progress=False)
+if not df_live.empty:
+    last_price = df_live["Close"].iloc[-1]
+    st.metric("Giá hiện tại (XAU/USD)", f"{last_price:.2f}")
+    st.write(f"🕒 Cập nhật lúc: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+else:
+    st.warning("Không thể tải dữ liệu realtime từ Yahoo.")
+
+# Nút phân tích chuyên sâu
+if st.button("🔍 Phân tích chuyên sâu"):
+    with st.spinner("Đang tải dữ liệu & phân tích..."):
+        df = fetch_data(interval_map[selected])
+        if not df.empty:
+            res, df = analyze(df)
+            st.markdown(f"### 📊 Phân tích kỹ thuật ({selected})")
+            st.dataframe(pd.DataFrame([
+                ["Xu hướng", res["trend"]],
+                ["RSI(14)", f"{res['rsi']:.2f}" if res["rsi"] else "-"],
+                ["Giá > MA20/50", "Có" if res["trend"]=="Tăng" else "Không"],
+                ["MACD", "Cắt lên" if res["macd_cross"] else "Chưa"],
+                ["Khuyến nghị", res["suggest"]],
+                ["Take Profit", res["tp"] if res["tp"] else "-"],
+                ["Cut Loss", res["sl"] if res["sl"] else "-"]
+            ], columns=["Chỉ tiêu","Giá trị"]), use_container_width=True)
+
+            candle, rsi_fig, macd_fig = plot_charts(df)
+            st.plotly_chart(candle, use_container_width=True)
+            st.plotly_chart(rsi_fig, use_container_width=True)
+            st.plotly_chart(macd_fig, use_container_width=True)
         else:
-            st.warning("Không thể tải dữ liệu realtime từ Yahoo.")
+            st.warning("Không có dữ liệu lịch sử để phân tích.")
 
-        if st.button("🔍 Phân tích chuyên sâu"):
-            with st.spinner("Đang phân tích..."):
-                df = fetch_data(interval_map[selected])
-                if not df.empty:
-                    res, df = analyze(df)
-                    st.markdown(f"### 📊 Phân tích kỹ thuật ({selected})")
-                    st.dataframe(pd.DataFrame([
-                        ["Xu hướng", res["trend"]],
-                        ["RSI(14)", f"{res['rsi']:.2f}" if res["rsi"] else "-"],
-                        ["Giá > MA20/50", "Có" if res["trend"]=="Tăng" else "Không"],
-                        ["MACD", "Cắt lên" if res["macd_cross"] else "Chưa"],
-                        ["Khuyến nghị", res["suggest"]],
-                        ["Take Profit", res["tp"] if res["tp"] else "-"],
-                        ["Cut Loss", res["sl"] if res["sl"] else "-"]
-                    ], columns=["Chỉ tiêu","Giá trị"]), use_container_width=True)
-
-                    candle, rsi_fig, macd_fig = plot_charts(df)
-                    st.plotly_chart(candle, use_container_width=True)
-                    st.plotly_chart(rsi_fig, use_container_width=True)
-                    st.plotly_chart(macd_fig, use_container_width=True)
-                else:
-                    st.warning("Không có dữ liệu lịch sử để phân tích.")
-
-        st.caption("⚠️ Dữ liệu realtime & lịch sử từ Yahoo Finance. Không phải lời khuyên đầu tư.")
-        st.info(f"⏳ Tự động cập nhật sau {interval} giây.")
-    time.sleep(interval)
+st.caption("⚠️ Dữ liệu realtime & lịch sử từ Yahoo Finance. Không phải lời khuyên đầu tư.")
