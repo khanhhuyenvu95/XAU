@@ -7,22 +7,22 @@ from datetime import datetime
 import time
 
 # =========================
-# CONFIG
+# CẤU HÌNH
 # =========================
-st.set_page_config(page_title="Gold Analyst Pro v6", layout="wide")
-st.title("🏆 Gold Analyst Pro v6 – AI chuyên gia phân tích vàng (Finnhub.io)")
+st.set_page_config(page_title="Gold Analyst Pro v6.1", layout="wide")
+st.title("🏆 Gold Analyst Pro v6.1 – AI phân tích vàng (Finnhub.io – Free Tier Compatible)")
 st.caption(
-    "Realtime & dữ liệu lịch sử từ Finnhub.io. Phân tích RSI, MACD, MA20/50, Volume, "
-    "và khuyến nghị đầu tư thông minh. Tự động cập nhật mỗi 30 giây."
+    "Dữ liệu realtime & lịch sử từ Finnhub.io (tài khoản miễn phí). "
+    "Phân tích RSI, MACD, MA20/50, Volume và khuyến nghị đầu tư thông minh."
 )
 
 # =========================
-# API KEY CỦA BẠN
+# FINNHUB API KEY
 # =========================
 FINNHUB_KEY = "d3qnebhr01quv7kbllqgd3qnebhr01quv7kbllr0"
 
 # =========================
-# CHỈ BÁO KỸ THUẬT
+# HÀM CHỈ BÁO
 # =========================
 def ema(series, span): return series.ewm(span=span, adjust=False).mean()
 def sma(series, n): return series.rolling(n).mean()
@@ -51,7 +51,7 @@ def atr(df, n=14):
     return tr.rolling(n).mean()
 
 # =========================
-# LẤY GIÁ REALTIME
+# LẤY DỮ LIỆU REALTIME
 # =========================
 def fetch_realtime():
     try:
@@ -59,25 +59,27 @@ def fetch_realtime():
         r = requests.get(url, timeout=10)
         r.raise_for_status()
         d = r.json()
-        return {"price": d["c"], "time": datetime.fromtimestamp(d["t"])}
+        price = d.get("c", 0.0)
+        t = d.get("t", 0)
+        return {"price": price, "time": datetime.fromtimestamp(t) if t > 0 else datetime.now()}
     except Exception as e:
         st.error(f"Lỗi dữ liệu realtime Finnhub: {e}")
         return None
 
 # =========================
-# LẤY DỮ LIỆU LỊCH SỬ
+# LẤY DỮ LIỆU LỊCH SỬ (Free Tier)
 # =========================
 def fetch_history(resolution="60"):
     try:
-        # resolution: 1, 5, 15, 30, 60, D, W, M
         now = int(time.time())
-        frm = now - 90 * 24 * 3600
-        url = f"https://finnhub.io/api/v1/forex/candle?symbol=OANDA:XAU_USD&resolution={resolution}&from={frm}&to={now}&token={FINNHUB_KEY}"
+        frm = now - 90 * 24 * 3600  # 90 ngày
+        # SỬA: dùng symbol "FX:XAUUSD" thay vì "OANDA:XAU_USD"
+        url = f"https://finnhub.io/api/v1/forex/candle?symbol=FX:XAUUSD&resolution={resolution}&from={frm}&to={now}&token={FINNHUB_KEY}"
         r = requests.get(url, timeout=10)
         r.raise_for_status()
         data = r.json()
         if data.get("s") != "ok":
-            st.warning("⚠️ Không lấy được dữ liệu lịch sử từ Finnhub.")
+            st.warning("⚠️ Không lấy được dữ liệu lịch sử từ Finnhub (Free tier).")
             return pd.DataFrame()
         df = pd.DataFrame({
             "Time": pd.to_datetime(data["t"], unit="s"),
@@ -121,7 +123,7 @@ def analyze(df):
     return res, df
 
 # =========================
-# BIỂU ĐỒ
+# VẼ BIỂU ĐỒ
 # =========================
 def plot_charts(df):
     candle=go.Figure()
@@ -146,25 +148,22 @@ def plot_charts(df):
     return candle, rsi_fig, macd_fig
 
 # =========================
-# AUTO REFRESH
+# HIỂN THỊ GIAO DIỆN
 # =========================
-placeholder = st.empty()
-interval = 30  # 30s refresh
+st.subheader("💰 Giá vàng thời gian thực")
+realtime = fetch_realtime()
+if realtime:
+    st.metric("Giá hiện tại (XAU/USD)", f"{realtime['price']:.2f}")
+    st.write(f"🕒 Cập nhật lúc: {realtime['time']}")
+else:
+    st.warning("Không thể lấy dữ liệu realtime từ Finnhub.")
 
-while True:
-    with placeholder.container():
-        st.subheader("💰 Giá vàng thời gian thực")
-        rt = fetch_realtime()
-        if rt:
-            st.metric("Giá hiện tại (XAU/USD)", f"{rt['price']:.2f}")
-            st.write(f"🕒 Cập nhật lúc: {rt['time']}")
-        else:
-            st.warning("Không thể lấy dữ liệu realtime.")
-
+if st.button("🔍 Phân tích chuyên sâu"):
+    with st.spinner("Đang tải dữ liệu và phân tích..."):
         df = fetch_history()
         if not df.empty:
             res, df = analyze(df)
-            st.markdown("### 📊 Phân tích kỹ thuật (1H)")
+            st.markdown("### 📊 Kết quả phân tích (1H)")
             st.dataframe(pd.DataFrame([
                 ["Xu hướng", res["trend"]],
                 ["RSI(14)", f"{res['rsi']:.2f}" if res["rsi"] else "-"],
@@ -182,6 +181,4 @@ while True:
         else:
             st.warning("Không có dữ liệu lịch sử để phân tích.")
 
-        st.caption("⚠️ Dữ liệu realtime & lịch sử từ Finnhub.io. Không phải lời khuyên đầu tư.")
-        st.info(f"⏳ Trang sẽ tự động cập nhật sau {interval} giây.")
-    time.sleep(interval)
+st.caption("⚠️ Dữ liệu realtime & lịch sử từ Finnhub.io (Free Tier). Không phải lời khuyên đầu tư.")
