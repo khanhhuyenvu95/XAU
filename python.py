@@ -5,25 +5,21 @@ import requests
 import yfinance as yf
 import plotly.graph_objects as go
 from datetime import datetime
-import time
 
 # =========================
-# CẤU HÌNH ỨNG DỤNG
+# CẤU HÌNH
 # =========================
-st.set_page_config(page_title="Gold Analyst Pro v7", layout="wide")
-st.title("🏆 Gold Analyst Pro v7 – AI phân tích vàng (Realtime Finnhub + History Yahoo)")
-st.caption(
-    "Giá realtime từ Finnhub.io (Free Tier) + Dữ liệu lịch sử từ Yahoo Finance. "
-    "Phân tích RSI, MACD, MA20/50, Volume, và khuyến nghị BUY/SELL tự động."
-)
+st.set_page_config(page_title="Gold Analyst Pro v7.1", layout="wide")
+st.title("🏆 Gold Analyst Pro v7.1 – AI phân tích vàng (Finnhub Realtime + Yahoo History)")
+st.caption("Realtime từ Finnhub.io (OANDA:XAU_USD – Free Tier) + Lịch sử từ Yahoo Finance.")
 
 # =========================
-# API KEY CỦA BẠN (FINNHUB)
+# FINNHUB KEY
 # =========================
 FINNHUB_KEY = "d3qnebhr01quv7kbllqgd3qnebhr01quv7kbllr0"
 
 # =========================
-# CÁC HÀM CHỈ BÁO
+# HÀM CHỈ BÁO
 # =========================
 def ema(series, span): return series.ewm(span=span, adjust=False).mean()
 def sma(series, n): return series.rolling(n).mean()
@@ -49,23 +45,26 @@ def atr(df, n=14):
     return tr.rolling(n).mean()
 
 # =========================
-# LẤY GIÁ REALTIME (FINNHUB)
+# FINNHUB REALTIME (OANDA)
 # =========================
 def fetch_realtime():
+    url = f"https://finnhub.io/api/v1/quote?symbol=OANDA:XAU_USD&token={FINNHUB_KEY}"
     try:
-        url = f"https://finnhub.io/api/v1/quote?symbol=XAUUSD&token={FINNHUB_KEY}"
         r = requests.get(url, timeout=10)
         r.raise_for_status()
-        d = r.json()
-        price = d.get("c", 0.0)
-        t = d.get("t", 0)
-        return {"price": price, "time": datetime.fromtimestamp(t) if t > 0 else datetime.now()}
+        data = r.json()
+        price = data.get("c", 0)
+        t = data.get("t", 0)
+        return {
+            "price": price,
+            "time": datetime.fromtimestamp(t) if t > 0 else datetime.now()
+        }
     except Exception as e:
-        st.error(f"Lỗi dữ liệu realtime Finnhub: {e}")
+        st.error(f"Lỗi realtime Finnhub: {e}")
         return None
 
 # =========================
-# LẤY DỮ LIỆU LỊCH SỬ (YAHOO FINANCE)
+# YAHOO HISTORY
 # =========================
 def fetch_history(interval="1h", period="90d"):
     try:
@@ -73,7 +72,7 @@ def fetch_history(interval="1h", period="90d"):
         df.rename(columns=str.capitalize, inplace=True)
         return df
     except Exception as e:
-        st.error(f"Lỗi dữ liệu Yahoo Finance: {e}")
+        st.error(f"Lỗi Yahoo Finance: {e}")
         return pd.DataFrame()
 
 # =========================
@@ -119,13 +118,13 @@ def plot_charts(df):
     rsi_fig=go.Figure()
     rsi_fig.add_trace(go.Scatter(x=df.index,y=df.RSI,line=dict(color="purple"),name="RSI"))
     rsi_fig.add_hrect(y0=30,y1=70,fillcolor="gray",opacity=0.2,line_width=0)
-    rsi_fig.update_layout(title="Chỉ báo RSI(14)",height=200)
+    rsi_fig.update_layout(title="RSI(14)",height=200)
 
     macd_fig=go.Figure()
     macd_fig.add_trace(go.Scatter(x=df.index,y=df.MACD,line=dict(color="orange"),name="MACD"))
     macd_fig.add_trace(go.Scatter(x=df.index,y=df.SIGNAL,line=dict(color="blue"),name="Signal"))
     macd_fig.add_trace(go.Bar(x=df.index,y=df.HIST,name="Histogram",marker_color="gray"))
-    macd_fig.update_layout(title="Chỉ báo MACD",height=200)
+    macd_fig.update_layout(title="MACD",height=200)
     return candle, rsi_fig, macd_fig
 
 # =========================
@@ -137,14 +136,14 @@ if realtime:
     st.metric("Giá hiện tại (XAU/USD)", f"{realtime['price']:.2f}")
     st.write(f"🕒 Cập nhật lúc: {realtime['time']}")
 else:
-    st.warning("Không thể lấy dữ liệu realtime từ Finnhub.io.")
+    st.warning("Không thể lấy dữ liệu realtime từ Finnhub (OANDA:XAU_USD).")
 
 if st.button("🔍 Phân tích chuyên sâu"):
-    with st.spinner("Đang tải dữ liệu lịch sử & phân tích..."):
+    with st.spinner("Đang tải dữ liệu & phân tích..."):
         df = fetch_history()
         if not df.empty:
             res, df = analyze(df)
-            st.markdown("### 📊 Kết quả phân tích (1H)")
+            st.markdown("### 📊 Kết quả phân tích")
             st.dataframe(pd.DataFrame([
                 ["Xu hướng", res["trend"]],
                 ["RSI(14)", f"{res['rsi']:.2f}" if res["rsi"] else "-"],
@@ -162,4 +161,4 @@ if st.button("🔍 Phân tích chuyên sâu"):
         else:
             st.warning("Không có dữ liệu lịch sử để phân tích.")
 
-st.caption("⚠️ Dữ liệu realtime từ Finnhub.io; lịch sử từ Yahoo Finance. Không phải lời khuyên đầu tư.")
+st.caption("⚠️ Dữ liệu realtime từ Finnhub.io (OANDA:XAU_USD); lịch sử từ Yahoo Finance.")
