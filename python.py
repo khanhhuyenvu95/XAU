@@ -1,25 +1,20 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import requests
 import yfinance as yf
 import plotly.graph_objects as go
 from datetime import datetime
+import time
 
 # =========================
 # CẤU HÌNH
 # =========================
-st.set_page_config(page_title="Gold Analyst Pro v7.1", layout="wide")
-st.title("🏆 Gold Analyst Pro v7.1 – AI phân tích vàng (Finnhub Realtime + Yahoo History)")
-st.caption("Realtime từ Finnhub.io (OANDA:XAU_USD – Free Tier) + Lịch sử từ Yahoo Finance.")
+st.set_page_config(page_title="Gold Analyst Pro v8", layout="wide")
+st.title("🏆 Gold Analyst Pro v8 – AI phân tích vàng (Yahoo Realtime + History)")
+st.caption("Dữ liệu realtime & lịch sử từ Yahoo Finance. Không cần API, hoạt động ổn định, miễn phí.")
 
 # =========================
-# FINNHUB KEY
-# =========================
-FINNHUB_KEY = "d3qnebhr01quv7kbllqgd3qnebhr01quv7kbllr0"
-
-# =========================
-# HÀM CHỈ BÁO
+# CÁC HÀM CHỈ BÁO
 # =========================
 def ema(series, span): return series.ewm(span=span, adjust=False).mean()
 def sma(series, n): return series.rolling(n).mean()
@@ -45,43 +40,19 @@ def atr(df, n=14):
     return tr.rolling(n).mean()
 
 # =========================
-# FINNHUB REALTIME (OANDA)
+# HÀM LẤY DỮ LIỆU TỪ YAHOO
 # =========================
-def fetch_realtime():
-    url = f"https://finnhub.io/api/v1/quote?symbol=OANDA:XAU_USD&token={FINNHUB_KEY}"
-    try:
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-        price = data.get("c", 0)
-        t = data.get("t", 0)
-        return {
-            "price": price,
-            "time": datetime.fromtimestamp(t) if t > 0 else datetime.now()
-        }
-    except Exception as e:
-        st.error(f"Lỗi realtime Finnhub: {e}")
-        return None
+def fetch_data(interval="1h", period="90d"):
+    df = yf.download("XAUUSD=X", interval=interval, period=period, progress=False)
+    df.rename(columns=str.capitalize, inplace=True)
+    return df
 
 # =========================
-# YAHOO HISTORY
-# =========================
-def fetch_history(interval="1h", period="90d"):
-    try:
-        df = yf.download("XAUUSD=X", interval=interval, period=period, progress=False)
-        df.rename(columns=str.capitalize, inplace=True)
-        return df
-    except Exception as e:
-        st.error(f"Lỗi Yahoo Finance: {e}")
-        return pd.DataFrame()
-
-# =========================
-# PHÂN TÍCH
+# PHÂN TÍCH CHỈ BÁO
 # =========================
 def analyze(df):
     res = {"trend":"-", "rsi":None, "ma20":None, "ma50":None,
-            "macd_cross":False, "vol_spike":False,
-            "suggest":"HOLD", "tp":None, "sl":None}
+            "macd_cross":False, "suggest":"HOLD", "tp":None, "sl":None}
     if df.empty: return res
     df["RSI"]=rsi(df.Close)
     df["MA20"],df["MA50"]=sma(df.Close,20),sma(df.Close,50)
@@ -128,37 +99,48 @@ def plot_charts(df):
     return candle, rsi_fig, macd_fig
 
 # =========================
-# GIAO DIỆN STREAMLIT
+# GIAO DIỆN APP
 # =========================
-st.subheader("💰 Giá vàng thời gian thực")
-realtime = fetch_realtime()
-if realtime:
-    st.metric("Giá hiện tại (XAU/USD)", f"{realtime['price']:.2f}")
-    st.write(f"🕒 Cập nhật lúc: {realtime['time']}")
-else:
-    st.warning("Không thể lấy dữ liệu realtime từ Finnhub (OANDA:XAU_USD).")
+interval_map = {"1 Giờ": "1h", "4 Giờ": "4h", "1 Ngày": "1d"}
+selected = st.selectbox("⏱️ Chọn khung thời gian:", list(interval_map.keys()))
 
-if st.button("🔍 Phân tích chuyên sâu"):
-    with st.spinner("Đang tải dữ liệu & phân tích..."):
-        df = fetch_history()
-        if not df.empty:
-            res, df = analyze(df)
-            st.markdown("### 📊 Kết quả phân tích")
-            st.dataframe(pd.DataFrame([
-                ["Xu hướng", res["trend"]],
-                ["RSI(14)", f"{res['rsi']:.2f}" if res["rsi"] else "-"],
-                ["Giá > MA20/50", "Có" if res["trend"]=="Tăng" else "Không"],
-                ["MACD", "Cắt lên" if res["macd_cross"] else "Chưa"],
-                ["Khuyến nghị", res["suggest"]],
-                ["Take Profit", res["tp"] if res["tp"] else "-"],
-                ["Cut Loss", res["sl"] if res["sl"] else "-"]
-            ], columns=["Chỉ tiêu","Giá trị"]), use_container_width=True)
+placeholder = st.empty()
+interval = 30  # refresh mỗi 30s
 
-            candle, rsi_fig, macd_fig = plot_charts(df)
-            st.plotly_chart(candle, use_container_width=True)
-            st.plotly_chart(rsi_fig, use_container_width=True)
-            st.plotly_chart(macd_fig, use_container_width=True)
+while True:
+    with placeholder.container():
+        st.subheader("💰 Giá vàng thời gian thực (Yahoo Finance)")
+        df_live = yf.download("XAUUSD=X", period="1d", interval="1m", progress=False)
+        if not df_live.empty:
+            last_price = df_live["Close"].iloc[-1]
+            st.metric("Giá hiện tại (XAU/USD)", f"{last_price:.2f}")
+            st.write(f"🕒 Cập nhật lúc: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         else:
-            st.warning("Không có dữ liệu lịch sử để phân tích.")
+            st.warning("Không thể tải dữ liệu realtime từ Yahoo.")
 
-st.caption("⚠️ Dữ liệu realtime từ Finnhub.io (OANDA:XAU_USD); lịch sử từ Yahoo Finance.")
+        if st.button("🔍 Phân tích chuyên sâu"):
+            with st.spinner("Đang phân tích..."):
+                df = fetch_data(interval_map[selected])
+                if not df.empty:
+                    res, df = analyze(df)
+                    st.markdown(f"### 📊 Phân tích kỹ thuật ({selected})")
+                    st.dataframe(pd.DataFrame([
+                        ["Xu hướng", res["trend"]],
+                        ["RSI(14)", f"{res['rsi']:.2f}" if res["rsi"] else "-"],
+                        ["Giá > MA20/50", "Có" if res["trend"]=="Tăng" else "Không"],
+                        ["MACD", "Cắt lên" if res["macd_cross"] else "Chưa"],
+                        ["Khuyến nghị", res["suggest"]],
+                        ["Take Profit", res["tp"] if res["tp"] else "-"],
+                        ["Cut Loss", res["sl"] if res["sl"] else "-"]
+                    ], columns=["Chỉ tiêu","Giá trị"]), use_container_width=True)
+
+                    candle, rsi_fig, macd_fig = plot_charts(df)
+                    st.plotly_chart(candle, use_container_width=True)
+                    st.plotly_chart(rsi_fig, use_container_width=True)
+                    st.plotly_chart(macd_fig, use_container_width=True)
+                else:
+                    st.warning("Không có dữ liệu lịch sử để phân tích.")
+
+        st.caption("⚠️ Dữ liệu realtime & lịch sử từ Yahoo Finance. Không phải lời khuyên đầu tư.")
+        st.info(f"⏳ Tự động cập nhật sau {interval} giây.")
+    time.sleep(interval)
