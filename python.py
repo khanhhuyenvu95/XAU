@@ -5,16 +5,17 @@ import yfinance as yf
 import plotly.graph_objects as go
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
+import requests
 
 # =========================
 # CẤU HÌNH
 # =========================
-st.set_page_config(page_title="Gold Analyst Pro v8.2", layout="wide")
-st.title("🏆 Gold Analyst Pro v8.2 – AI phân tích vàng (Yahoo Realtime + History Fallback)")
-st.caption("Lấy dữ liệu realtime & lịch sử từ Yahoo Finance. Tự động chuyển nguồn nếu lỗi. Không cần API key.")
+st.set_page_config(page_title="Gold Analyst Pro v8.3", layout="wide")
+st.title("🏆 Gold Analyst Pro v8.3 – AI phân tích vàng (Yahoo + Investing.com Backup)")
+st.caption("Realtime từ Yahoo Finance hoặc Investing.com nếu Yahoo lỗi. Không cần API key.")
 
 # =========================
-# CÁC HÀM CHỈ BÁO
+# CHỈ BÁO KỸ THUẬT
 # =========================
 def ema(series, span): return series.ewm(span=span, adjust=False).mean()
 def sma(series, n): return series.rolling(n).mean()
@@ -40,19 +41,48 @@ def atr(df, n=14):
     return tr.rolling(n).mean()
 
 # =========================
-# HÀM LẤY DỮ LIỆU (CÓ FALLBACK)
+# LẤY DỮ LIỆU TỪ YAHOO
 # =========================
 def fetch_data(symbol="XAUUSD=X", interval="1h", period="90d"):
     try:
         df = yf.download(symbol, interval=interval, period=period, progress=False)
         if df.empty:
-            st.warning(f"⚠️ Không có dữ liệu cho {symbol}. Thử fallback sang GC=F (Gold Futures).")
+            st.warning(f"⚠️ Yahoo không có dữ liệu cho {symbol}, fallback sang GC=F (Gold Futures).")
             df = yf.download("GC=F", interval=interval, period=period, progress=False)
         df.rename(columns=str.capitalize, inplace=True)
         return df
     except Exception as e:
         st.error(f"Lỗi Yahoo Finance: {e}")
         return pd.DataFrame()
+
+# =========================
+# LẤY GIÁ REALTIME
+# =========================
+def fetch_realtime():
+    try:
+        df_live = yf.download("XAUUSD=X", period="1d", interval="1m", progress=False)
+        if df_live.empty:
+            df_live = yf.download("GC=F", period="1d", interval="1m", progress=False)
+        if not df_live.empty:
+            last_price = df_live["Close"].iloc[-1]
+            if isinstance(last_price, (pd.Series, np.ndarray)):
+                last_price = float(last_price.values[0])
+            else:
+                last_price = float(last_price)
+            return round(last_price, 2)
+        else:
+            return None
+    except Exception:
+        # Fallback: Lấy từ Investing.com (qua API free JSON)
+        try:
+            r = requests.get("https://api.metals.live/v1/spot/gold", timeout=10)
+            data = r.json()
+            if isinstance(data, list) and len(data) > 0:
+                last_price = data[-1].get("price", 0)
+                return round(float(last_price), 2)
+        except Exception:
+            return None
+        return None
 
 # =========================
 # PHÂN TÍCH
@@ -109,27 +139,22 @@ def plot_charts(df):
 # GIAO DIỆN APP
 # =========================
 st_autorefresh(interval=30 * 1000, key="refresh_data")
+
 interval_map = {"1 Giờ": "1h", "4 Giờ": "4h", "1 Ngày": "1d"}
 selected = st.selectbox("⏱️ Chọn khung thời gian:", list(interval_map.keys()))
 
-# Lấy realtime
-st.subheader("💰 Giá vàng thời gian thực (Yahoo Finance)")
-try:
-    df_live = yf.download("XAUUSD=X", period="1d", interval="1m", progress=False)
-    if df_live.empty:
-        df_live = yf.download("GC=F", period="1d", interval="1m", progress=False)
-    if not df_live.empty:
-        last_price = df_live["Close"].iloc[-1]
-        st.metric("Giá hiện tại (XAU/USD)", f"{last_price:.2f}")
-        st.write(f"🕒 Cập nhật lúc: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    else:
-        st.warning("Không thể tải dữ liệu realtime từ Yahoo hoặc GC=F.")
-except Exception as e:
-    st.error(f"Lỗi realtime Yahoo: {e}")
+# Realtime giá vàng
+st.subheader("💰 Giá vàng thời gian thực (Yahoo / Investing.com)")
+price = fetch_realtime()
+if price:
+    st.metric("Giá hiện tại (XAU/USD)", f"{price:.2f}")
+    st.write(f"🕒 Cập nhật lúc: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+else:
+    st.warning("Không thể tải dữ liệu realtime từ Yahoo hoặc Investing.com.")
 
-# Phân tích
+# Phân tích chuyên sâu
 if st.button("🔍 Phân tích chuyên sâu"):
-    with st.spinner("Đang phân tích..."):
+    with st.spinner("Đang tải dữ liệu & phân tích..."):
         df = fetch_data(interval=interval_map[selected])
         if not df.empty:
             res, df = analyze(df)
@@ -151,4 +176,4 @@ if st.button("🔍 Phân tích chuyên sâu"):
         else:
             st.warning("Không có dữ liệu lịch sử để phân tích.")
 
-st.caption("⚠️ Dữ liệu realtime & lịch sử từ Yahoo Finance. Tự động fallback sang GC=F nếu cần.")
+st.caption("⚠️ Dữ liệu realtime từ Yahoo Finance (fallback Investing.com); lịch sử từ Yahoo.")
